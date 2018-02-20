@@ -21,6 +21,9 @@ import time
 from perception import perception_step
 from decision import decision_step
 from supporting_functions import update_rover, create_output_images
+
+from collections import deque
+
 # Initialize socketio server and Flask application 
 # (learn more at: https://python-socketio.readthedocs.io/en/latest/)
 sio = socketio.Server()
@@ -53,13 +56,13 @@ class RoverState():
         self.nav_dists = None # Distances of navigable terrain pixels
         self.ground_truth = ground_truth_3d # Ground truth worldmap
         self.mode = 'forward' # Current mode (can be forward or stop)
-        self.throttle_set = 0.2 # Throttle setting when accelerating
+        self.throttle_set = 1.0 # Throttle setting when accelerating
         self.brake_set = 10 # Brake setting when braking
         # The stop_forward and go_forward fields below represent total count
         # of navigable terrain pixels.  This is a very crude form of knowing
         # when you can keep going and when you should stop.  Feel free to
         # get creative in adding new fields or modifying these!
-        self.stop_forward = 50 # Threshold to initiate stopping
+        self.stop_forward = 100 # Threshold to initiate stopping
         self.go_forward = 500 # Threshold to go forward again
         self.max_vel = 2 # Maximum velocity (meters/second)
         # Image output from perception step
@@ -77,6 +80,11 @@ class RoverState():
         self.near_sample = 0 # Will be set to telemetry value data["near_sample"]
         self.picking_up = 0 # Will be set to telemetry value data["picking_up"]
         self.send_pickup = False # Set to True to trigger rock pickup
+
+        self.vel_hist = deque() # Velocity of past n frames
+        self.vel_hist_n = 20
+        self.stuck_counter_limit = 100
+        self.stuck_counter = 0
 # Initialize our rover 
 Rover = RoverState()
 
@@ -128,6 +136,7 @@ def telemetry(sid, data):
                 Rover.send_pickup = False
             else:
                 # Send commands to the rover!
+                print(Rover.throttle)
                 commands = (Rover.throttle, Rover.brake, Rover.steer)
                 send_control(commands, out_image_string1, out_image_string2)
 

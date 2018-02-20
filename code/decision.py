@@ -1,4 +1,5 @@
 import numpy as np
+import random
 
 
 # This is where you can build a decision tree for determining throttle, brake and steer 
@@ -25,7 +26,28 @@ def decision_step(Rover):
                     Rover.throttle = 0
                 Rover.brake = 0
                 # Set steering to average angle clipped to the range +/- 15
-                Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
+                Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi) - (random.uniform(0, 10.0)), -15, 15)
+
+                # if Rover.unstuck:
+                if len(Rover.vel_hist) < Rover.vel_hist_n:
+                    Rover.vel_hist.append(Rover.vel)
+                else:
+                    Rover.vel_hist.popleft()
+                    Rover.vel_hist.append(Rover.vel)
+                    if Rover.stuck_counter == 0:
+                        if float(sum(Rover.vel_hist))/len(Rover.vel_hist) <= 0.01 and \
+                           float(sum(Rover.vel_hist))/len(Rover.vel_hist) >= -0.01:
+                            # Set mode to "stop" and hit the brakes!
+                            Rover.throttle = 0
+                            # Set brake to stored brake value
+                            Rover.brake = Rover.brake_set
+                            Rover.steer = 0
+                            Rover.mode = 'stuck'
+                            Rover.unstuck = False
+                            Rover.stuck_counter = -Rover.stuck_counter_limit
+                if Rover.stuck_counter > 0:
+                    Rover.stuck_counter -= 1
+
             # If there's a lack of navigable terrain pixels then go to 'stop' mode
             elif len(Rover.nav_angles) < Rover.stop_forward:
                     # Set mode to "stop" and hit the brakes!
@@ -44,13 +66,14 @@ def decision_step(Rover):
                 Rover.steer = 0
             # If we're not moving (vel < 0.2) then do something else
             elif Rover.vel <= 0.2:
+                Rover.stuck_counter = Rover.stuck_counter_limit
                 # Now we're stopped and we have vision data to see if there's a path forward
                 if len(Rover.nav_angles) < Rover.go_forward:
                     Rover.throttle = 0
                     # Release the brake to allow turning
                     Rover.brake = 0
                     # Turn range is +/- 15 degrees, when stopped the next line will induce 4-wheel turning
-                    Rover.steer = -15 # Could be more clever here about which way to turn
+                    Rover.steer = 15 # Could be more clever here about which way to turn
                 # If we're stopped but see sufficient navigable terrain in front then go!
                 if len(Rover.nav_angles) >= Rover.go_forward:
                     # Set throttle back to stored value
@@ -60,6 +83,20 @@ def decision_step(Rover):
                     # Set steer to mean angle
                     Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
                     Rover.mode = 'forward'
+
+        elif Rover.mode == 'stuck':
+            print("In stuck mode, rover vel is ", Rover.vel)
+            if Rover.vel >= -0.9 or Rover.stuck_counter < 0:
+                print("Trying to unstuck")
+                Rover.brake = 0.0
+                Rover.throttle = -Rover.throttle_set
+                Rover.stuck_counter += 1
+            else:
+                Rover.stuck_counter = Rover.stuck_counter_limit
+                Rover.brake = 0.0
+                Rover.throttle = Rover.throttle_set
+                Rover.steer = np.clip(np.mean(Rover.nav_angles * 180/np.pi), -15, 15)
+                Rover.mode = 'forward'
     # Just to make the rover do something 
     # even if no modifications have been made to the code
     else:
