@@ -10,6 +10,8 @@ The rover is equipped with a camera and other motion sensors. With the images ga
 2. Color thresholding: We use simple color thresholding to identify road, obstacles (including walls), and rocks.
 3. Coordinate transformations: Convert Rover coordinates into world coordinates so we may stich the views into a complete map. We also convert the navigable terrain into polar coordinates that we can use in the rover's navigation.
 
+Read the next section for the locations in the code where I applied the above steps.
+
 ## Notebook Analysis ##
 
 Each step above was first run in the Notebook to ensure it is working properly. In this section, I present the results with both a test image provided by Udacity and a recorded image I took from the simulator.
@@ -33,6 +35,32 @@ With test image:
 With recorded image:
 
 ![rec2](./misc/rec2.png)
+
+#### Changes in `process_image()` function
+
+Define calibration box in source (actual) and destination (desired) coordinates. These source and destination points are defined to warp the image to a grid where each 10x10 pixel square represents 1 square meter. 
+
+The destination box will be 2\*dst_size on each side.
+
+And then, set a bottom offset to account for the fact that the bottom of the image is not the position of the rover but a bit in front of it.
+
+Refer to the following code block in `process_image()` function:
+
+```
+    # 1) Define source and destination points for perspective transform
+    dst_size = 5 
+    bottom_offset = 6
+    source = np.float32([[14, 140], [301 ,140],[200, 96], [118, 96]])
+    destination = np.float32([[image.shape[1]/2 - dst_size, image.shape[0] - bottom_offset],
+                      [image.shape[1]/2 + dst_size, image.shape[0] - bottom_offset],
+                      [image.shape[1]/2 + dst_size, image.shape[0] - 2*dst_size - bottom_offset], 
+                      [image.shape[1]/2 - dst_size, image.shape[0] - 2*dst_size - bottom_offset],
+                      ])
+
+    # 2) Apply perspective transform
+    warped = perspect_transform(img, source, destination)
+```
+
 
 ### Color Thresholding
 
@@ -66,9 +94,21 @@ Obstacle:
 
 We were able to identify the navigable terrain, rock, and obstacle area correctly.
 
+#### Changes in `process_image()` function
+
 To threshold the rock, I use a range thresholding between R: 110, G: 110, B: 5 and R: 255, G: 255, and B: 90. That range collects the gold color properly.
 
 For the road and obstacle, I used R: 160, G: 160, and B:160. The system identifies anything above those values as road and below those values as obstacles.
+
+Refer to the following code block in `process_image()` function:
+
+```
+    # 3) Apply color threshold to identify navigable terrain/obstacles/rock samples
+    road = color_thresh(warped, rgb_thresh=(160, 160, 160))
+    rock = color_thresh_range(warped, rgb_thresh_min=(110,110, 5), rgb_thresh_max=(255, 255, 90))
+    obst = color_thresh((-1 * warped), rgb_thresh=(-160, -160, -160))
+
+```
 
 ### Coordinate Transformations
 
@@ -81,6 +121,51 @@ With recorded image:
 ![rec4](./misc/rec4.png)
 
 The arrow shows a mean direction of the area of interest. In this case, it points to the area where most navigable terrain (road) lies. We use this direction in our rover automatic navigation module.
+
+#### Changes in `process_image()` function
+
+I converted the image pixels to rover-centric coordinates and then to world coordinates and updated the worldmap for obstacles, road, and rock.
+
+Refer to the following code block in `process_image()` function:
+
+```
+    # 4) Convert thresholded image pixel values to rover-centric coords
+    x_road, y_road = rover_coords(road)
+    x_rock, y_rock = rover_coords(rock)
+    x_obst, y_obst = rover_coords(obst)
+
+    # 5) Convert rover-centric pixel values to world coords
+    wx_road, wy_road = pix_to_world(x_road, y_road, xpos, ypos, yaw, data.worldmap.shape[0], 10)
+    wx_rock, wy_rock = pix_to_world(x_rock, y_rock, xpos, ypos, yaw, data.worldmap.shape[0], 10)
+    wx_obst, wy_obst = pix_to_world(x_obst, y_obst, xpos, ypos, yaw, data.worldmap.shape[0], 10)
+
+    # 6) Update worldmap (to be displayed on right side of screen)
+    data.worldmap[wy_obst, wx_obst, 0] += 1
+    data.worldmap[wy_rock, wx_rock, 1] += 1
+    data.worldmap[wy_road, wx_road, 2] += 1
+```
+
+The final step of `process_image()` is just presenting the worldmap, as described below:
+
+```
+    # 7) Make a mosaic image, below is some example code
+        # First create a blank image (can be whatever shape you like)
+    output_image = np.zeros((img.shape[0] + data.worldmap.shape[0], img.shape[1]*2, 3))
+        # Next you can populate regions of the image with various output
+        # Here I'm putting the original image in the upper left hand corner
+    output_image[0:img.shape[0], 0:img.shape[1]] = img
+
+        # Let's create more images to add to the mosaic, first a warped image
+    warped = perspect_transform(img, source, destination)
+        # Add the warped image in the upper right hand corner
+    output_image[0:img.shape[0], img.shape[1]:] = warped
+
+        # Overlay worldmap with ground truth map
+    map_add = cv2.addWeighted(data.worldmap, 1, data.ground_truth, 0.5, 0)
+        # Flip map overlay so y-axis points upward and add to output_image 
+    output_image[img.shape[0]:, 0:data.worldmap.shape[1]] = np.flipud(map_add)
+```
+
 
 ## Test Run with a video ##
 
